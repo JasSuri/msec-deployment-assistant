@@ -1,78 +1,78 @@
-# Deployment Assistant — Agent Configuration
+# Security Deployment Demos
 
-An AI-driven Cloud Solution Architect that helps customers **understand → validate → deploy** Microsoft cloud security and management products without fear.
+AI-assisted deployment workshops for Microsoft Security products using GitHub Copilot.
 
-This repo holds the **agent context** (skills, validations, license matrices, playbooks) that drive the assistant. The conversational layer (GHCP / Copilot Studio / Foundry agent / etc.) reads these files at runtime.
+## Overview
 
-> **Demo scope (v1):** Microsoft Defender for Cloud (MDC), persona = IT Admin.
-> **Roadmap:** Intune, Entra, Purview, Sentinel, Defender XDR — each plugs into the same structure under `products/`.
+This repository provides context files (agents, skills, instructions) that give GitHub Copilot deep knowledge of Microsoft Security products. When loaded, Copilot can guide IT admins through end-to-end deployment workflows ÔÇö from license assessment to enablement and validation.
 
----
+## Supported Products
 
-## Folder structure
+| Product | Status | Folder |
+|---------|--------|--------|
+| Microsoft Defender for Cloud (MDC) | Ô£à Ready | `skills/mdc/` |
+| Microsoft Entra (Identity & Access) | Ô£à Ready | `skills/entra/` |
+| Microsoft Intune (Endpoint Management) | Ô£à Ready | `skills/intune/` |
+| Microsoft Defender XDR (Endpoint, Email, Identity, Cloud Apps) | Ô£à Ready | `skills/defender-xdr/` |
+| Microsoft Purview (Data Security & Compliance) | Ô£à Ready | `skills/purview/` |
+| Microsoft Sentinel (SIEM/SOAR) | ­ƒö£ Planned | `skills/sentinel/` |
+
+## How It Works
+
+1. **Open this folder in VS Code** with GitHub Copilot enabled
+2. **Copilot reads the context files** (`.github/copilot-instructions.md` ÔåÆ agents ÔåÆ skills ÔåÆ instructions)
+3. **Ask Copilot**: _"I want to use MDC to protect my cloud environments, help me plan and deploy"_
+4. **Copilot walks you through** a structured workshop: license check ÔåÆ enablement ÔåÆ server discovery ÔåÆ recommendations ÔåÆ posture summary
+
+## Prerequisites
+
+- GitHub Copilot (Chat) in VS Code
+- Azure CLI (`az`) installed and authenticated (`az login`)
+- Azure subscription with target resources deployed (see [Lab Setup](#lab-setup))
+- Appropriate Azure permissions (Owner or Security Admin on target subscriptions)
+
+## Lab Setup
+
+To create a demo environment with resources that MDC can protect, deploy the official MDC lab ARM template:
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FAzure%2FAzure-Security-Center%2Fmaster%2FLabs%2FFiles%2Flabdeploy.json)
+
+This deploys: Windows VM, Linux VM, AKS cluster, SQL Server, Key Vault, Storage Account, App Service, and more. Takes ~10 minutes.
+
+Source: [MDC Lab Module 1](https://github.com/Azure/Microsoft-Defender-for-Cloud/blob/main/Labs/Modules/Module-1-Preparing-the-Environment.md)
+
+## Folder Structure
 
 ```
-deployment-assistant/
-├─ README.md                  ← you are here
-├─ INTEGRATION.md             ← how to wire these files into the AI (GHCP / Foundry / Copilot Studio)
-├─ AGENTS.md                  ← top-level agent contract (orchestrator behaviour, 3-pillar flow)
-│
-├─ products/                  ← one folder per product. Add new products here.
-│  └─ mdc/
-│     ├─ skill.md             ← what MDC is, capabilities, mental model (Pillar 1 source of truth)
-│     ├─ validation.yaml      ← machine-readable Pillar 1 + 2 questions, gates, decisions
-│     ├─ license-matrix.yaml  ← licence ↔ feature mapping (drives "what can I use today?")
-│     ├─ preflight.md         ← CLI / Graph / REST commands the agent runs to detect state
-│     └─ playbook.md          ← Pillar 3 phased deployment (commands + safety rails)
-│
-└─ _template/                 ← copy this when adding a new product
-   ├─ skill.md
-   ├─ validation.yaml
-   ├─ license-matrix.yaml
-   ├─ preflight.md
-   └─ playbook.md
+security-deployment-demos/
+Ôö£ÔöÇÔöÇ .github/
+Ôöé   Ôö£ÔöÇÔöÇ copilot-instructions.md         # Main agent ÔÇö routes to product skills
+Ôöé   ÔööÔöÇÔöÇ instructions/
+Ôöé       ÔööÔöÇÔöÇ mdc/                        # MDC-specific instruction files
+Ôöé           Ôö£ÔöÇÔöÇ mdc-workshop-phases.instructions.md
+Ôöé           Ôö£ÔöÇÔöÇ mdc-license-mapping.instructions.md
+Ôöé           Ôö£ÔöÇÔöÇ mdc-pricing.instructions.md
+Ôöé           ÔööÔöÇÔöÇ mdc-arg-queries.instructions.md
+Ôö£ÔöÇÔöÇ agents/
+Ôöé   ÔööÔöÇÔöÇ mdc-deployment.md              # MDC deployment agent persona
+Ôö£ÔöÇÔöÇ skills/
+Ôöé   ÔööÔöÇÔöÇ mdc/
+Ôöé       ÔööÔöÇÔöÇ SKILL.md                   # MDC skill definition
+Ôö£ÔöÇÔöÇ demo-scripts/
+Ôöé   ÔööÔöÇÔöÇ mdc-demo-walkthrough.md        # Demo recording script
+ÔööÔöÇÔöÇ README.md                          # This file
 ```
 
-## How the assistant uses it (3-pillar flow)
+## Adding a New Product
 
-```
-User: "I want to use MDC to protect my cloud — help me plan and deploy."
-        │
-        ▼
-   AGENTS.md  ─── routes to product = mdc
-        │
-        ▼
-┌─ PILLAR 1: UNDERSTAND ─────────────────────────────┐
-│  Source: products/mdc/skill.md                     │
-│  Driver: products/mdc/validation.yaml (pillar_1)   │
-│  Goal:   correct misconceptions, confirm fit       │
-└────────────────────────────────────────────────────┘
-        │
-        ▼
-┌─ PILLAR 2: VALIDATE ───────────────────────────────┐
-│  Driver: products/mdc/validation.yaml (pillar_2)   │
-│  Detect: products/mdc/preflight.md (live CLI/Graph)│
-│  Map:    products/mdc/license-matrix.yaml          │
-│  Goal:   confirm licences + roles + env are ready  │
-└────────────────────────────────────────────────────┘
-        │
-        ▼
-┌─ PILLAR 3: GUIDE ──────────────────────────────────┐
-│  Driver: products/mdc/playbook.md                  │
-│  Goal:   execute phased deployment with safety     │
-└────────────────────────────────────────────────────┘
-```
+To add support for a new product (e.g., Entra):
 
-See [INTEGRATION.md](INTEGRATION.md) for exact wiring instructions for the AI runtime.
+1. Create `skills/entra/SKILL.md` ÔÇö skill definition
+2. Create `agents/entra-deployment.md` ÔÇö agent persona
+3. Create `.github/instructions/entra/` ÔÇö detailed instruction files
+4. Update `.github/copilot-instructions.md` to route to the new product
+5. Update this README
 
-## Adding a new product (e.g. Intune)
+## Recording a Demo
 
-1. `cp -r _template products/intune`
-2. Fill in `skill.md` (what Intune is, capabilities, common misconceptions).
-3. Fill in `validation.yaml` (Pillar 1 + 2 questions specific to Intune).
-4. Fill in `license-matrix.yaml` (M365 E3 / E5 / EMS / Intune Plan 1+2 / Suite).
-5. Fill in `preflight.md` (Graph calls: `/deviceManagement`, `/policies/...`).
-6. Fill in `playbook.md` (enrolment → compliance → CA → app protection).
-7. Register the product in `AGENTS.md` under `## Product registry`.
-
-The agent picks it up automatically — no orchestrator code changes.
+See `demo-scripts/mdc-demo-walkthrough.md` for the MDC demo talk track and step-by-step recording guide.
