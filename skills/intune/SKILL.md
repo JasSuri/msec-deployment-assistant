@@ -1,3 +1,8 @@
+---
+name: intune-deployment
+description: Microsoft Intune deployment workshop for endpoint management, enrollment, compliance, and app protection. Use when the user asks about Intune, MDM, MAM, Autopilot, or device management.
+---
+
 # Intune Deployment Skill
 
 ## Description

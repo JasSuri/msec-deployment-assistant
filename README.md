@@ -6,6 +6,33 @@ AI-assisted deployment workshops for Microsoft Security products using GitHub Co
 
 This repository provides context files (agents, skills, instructions) that give GitHub Copilot deep knowledge of Microsoft Security products. When loaded, Copilot can guide IT admins through end-to-end deployment workflows ÔÇö from license assessment to enablement and validation.
 
+## GitHub Copilot CLI plugin
+
+This repository can be installed as a GitHub Copilot CLI plugin.
+
+### Direct install
+
+```shell
+copilot plugin install OWNER/REPO
+```
+
+Or from a Git URL:
+
+```shell
+copilot plugin install https://github.com/OWNER/REPO.git
+```
+
+### Marketplace mode
+
+The repo also includes `.github/plugin/marketplace.json`, so it can be registered as a plugin marketplace as well as installed directly as a plugin.
+
+### Packaging model
+
+- `products/` is the canonical source for structured product packs.
+- `agents/` contains plugin-compatible custom agents.
+- `skills/` contains plugin-compatible skills.
+- `.github/copilot-instructions.md` keeps direct repository usage deterministic.
+
 ## Supported Products
 
 | Product | Status | Folder |
@@ -67,11 +94,12 @@ security-deployment-demos/
 
 To add support for a new product (e.g., Entra):
 
-1. Create `skills/entra/SKILL.md` ÔÇö skill definition
-2. Create `agents/entra-deployment.md` ÔÇö agent persona
-3. Create `.github/instructions/entra/` ÔÇö detailed instruction files
-4. Update `.github/copilot-instructions.md` to route to the new product
-5. Update this README
+1. Create `products/<product>/` from `_template/` when you want a structured source pack.
+2. Add or update `skills/<product>/SKILL.md` so the plugin can load the skill directly.
+3. Add `agents/<product>-deployment.agent.md` so the plugin exposes a product-specific custom agent.
+4. Add or update `.github/instructions/<product>/` for any product-specific supporting guidance.
+5. Update `.github/copilot-instructions.md` routing if needed.
+6. Update this README.
 
 ## Recording a Demo
 
