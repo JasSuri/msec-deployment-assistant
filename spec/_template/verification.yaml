@@ -1,0 +1,50 @@
+# <PRODUCT> Verification template — Pillar 4
+# Copy and adapt per product. Every Pillar 3 (playbook.md) phase needs a matching block here.
+#
+# Three timing layers:
+#   L1_acknowledge — sync immediate (API accepted)
+#   L2_state       — sync polled (change visible on re-query)
+#   L3_functional  — deferred (actually doing its job)
+
+product: <product_id>
+version: 0.1
+applies_to: spec/<product>/playbook.md
+
+defaults:
+  L1_acknowledge: { max_attempts: 2, backoff_s: 5 }
+  L2_state: { poll: { interval_s: 10, max_wait_s: 300 } }
+  L3_functional: { mode: deferred, default_lag: 30m }
+
+phases:
+  - phase_id: phase_<n>_<name>
+    applies: <the playbook command this verifies>
+    verify:
+      L1_acknowledge:
+        cmd: <read-only check that the API call took>
+        expect: <expected value or expect_jmespath>
+      L2_state:
+        cmd: <re-query the resource>
+        expect: <expected steady-state value>
+        poll: { interval_s: 10, max_wait_s: 120 }
+      L3_functional:
+        description: <what success looks like in production>
+        cmd: <functional probe>
+        expect: <signal the feature is doing its job>
+        lag: 30m
+    diagnostics:
+      - if: <failure signature>
+        run: <read-only diagnostic command>
+        hint: <interpretation + reference to validation.yaml blocker if applicable>
+    rollback:
+      trigger: <when to roll back automatically>
+      cmd: <undo command>
+      verify_rollback:
+        cmd: <re-query>
+        expect: <pre-change state>
+
+report_format: |
+  ✅/❌  PHASE: <phase_id>
+  L1 acknowledge : <result>
+  L2 state       : <result>
+  L3 functional  : <result>
+  Rollback ready : <cmd>

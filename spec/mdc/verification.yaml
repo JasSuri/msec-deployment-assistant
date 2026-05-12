@@ -1,0 +1,327 @@
+# Machine-readable verification for Microsoft Defender for Cloud (MDC)
+# Pillar 4: VERIFY — close the loop after every Pillar 3 (playbook.md) action.
+# Consumed by the orchestrator (AGENTS.md).
+#
+# Three timing layers per phase:
+#   L1_acknowledge — sync, immediate. Did the API accept the call?
+#   L2_state       — sync, polled (10s–5m). Is the change visible on re-query?
+#   L3_functional  — deferred (15m–24h). Is it actually doing its job? Non-blocking.
+#
+# Rules enforced by AGENTS.md:
+#   - A phase is NEVER marked complete until L1 ✅ AND L2 ✅.
+#   - L3 may be reported as `pending` and scheduled for follow-up.
+#   - On any L1/L2 failure: run the matching `diagnostics` entry first, then
+#     decide rollback vs. retry vs. escalate.
+#   - Rollback verification (verify_rollback) MUST run after any rollback;
+#     never assume a rollback succeeded.
+
+product: mdc
+version: 1.0
+applies_to: spec/mdc/playbook.md
+
+# Defaults inherited by every phase unless overridden
+defaults:
+  L1_acknowledge:
+    max_attempts: 2
+    backoff_s: 5
+  L2_state:
+    poll: { interval_s: 10, max_wait_s: 300 }
+  L3_functional:
+    mode: deferred           # do not block conversation
+    default_lag: 30m
+
+# =============================================================================
+# Phase verifications — keyed to playbook.md phase ids
+# =============================================================================
+phases:
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_0_baseline
+    applies: |
+      az provider register --namespace Microsoft.Security
+      az security pricing show -n CloudPosture --subscription {{subId}}
+    verify:
+      L1_acknowledge:
+        description: Provider registration accepted.
+        cmd: az provider show -n Microsoft.Security --query registrationState -o tsv
+        expect_in: [Registering, Registered]
+      L2_state:
+        description: Provider reaches Registered.
+        cmd: az provider show -n Microsoft.Security --query registrationState -o tsv
+        expect: Registered
+        poll: { interval_s: 5, max_wait_s: 120 }
+      L3_functional:
+        description: Foundational CSPM emits at least one assessment.
+        cmd: az security assessment list --subscription {{subId}} --query "length(@)" -o tsv
+        expect: ">0"
+        lag: 60m
+    diagnostics:
+      - if: L1 returns NotRegistered
+        run: az provider show -n Microsoft.Security
+        hint: Re-run `az provider register --namespace Microsoft.Security`. Idempotent.
+      - if: L2 times out
+        run: az account show --query "{tenantId:tenantId, sub:id}"
+        hint: Possible cross-tenant context issue. Confirm `az account set --subscription`.
+    rollback:
+      trigger: not_applicable    # provider registration is non-destructive
+      note: Provider stays Registered; no rollback needed.
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_1_pilot_servers_p2
+    applies: az security pricing create -n VirtualMachines --tier Standard --subplan P2 --subscription {{pilotSubId}}
+    verify:
+      L1_acknowledge:
+        description: Pricing API accepted Standard + P2.
+        cmd: az security pricing show -n VirtualMachines --subscription {{pilotSubId}} -o json
+        expect_jmespath: "pricingTier=='Standard' && subPlan=='P2'"
+      L2_state:
+        description: Plan persists at Standard/P2 on re-query.
+        cmd: az security pricing show -n VirtualMachines --subscription {{pilotSubId}} --query "[pricingTier, subPlan]" -o tsv
+        expect: "Standard\tP2"
+        poll: { interval_s: 10, max_wait_s: 60 }
+      L3_functional:
+        description: MDE for Servers extension auto-deploys onto sample VM(s).
+        cmds:
+          - cmd: az vm extension list --vm-name {{sampleVm}} -g {{sampleRg}} --query "[?name=='MDE.Windows' || name=='MDE.Linux'].{name:name, state:provisioningState}" -o table
+            expect: provisioningState == Succeeded on at least one row
+          - cmd: az security alert list --subscription {{pilotSubId}}
+            expect: query succeeds (alerts may be empty for a new sub)
+        lag: 30m
+    diagnostics:
+      - if: L1 returns 403
+        run: az role assignment list --assignee {{userObjectId}} --scope /subscriptions/{{pilotSubId}} -o table
+        hint: Missing Security Admin / Owner. Trigger validation.yaml#b.no_security_admin (PIM elevation).
+      - if: L1 returns BadRequest on subPlan
+        run: az security pricing show -n VirtualMachines --subscription {{pilotSubId}}
+        hint: Confirm sub-plan name is exactly `P1` or `P2`. Region/SKU availability rare but possible.
+      - if: L2 stuck at Free
+        run: az policy state list --subscription {{pilotSubId}} --filter "complianceState eq 'NonCompliant'" --query "[?contains(policyDefinitionName, 'Defender')]" -o table
+        hint: An Azure Policy `deny` may be reverting the change.
+      - if: L3 sample VM has no MDE extension after 30m
+        run: az security auto-provisioning-setting list --subscription {{pilotSubId}} -o table
+        hint: Auto-provisioning likely Off. Enable it (see playbook Phase 1) or install extension manually.
+    rollback:
+      trigger: L1 fails twice OR user aborts during L2 wait OR cost-ceiling exceeded
+      cmd: az security pricing create -n VirtualMachines --tier Free --subscription {{pilotSubId}}
+      verify_rollback:
+        cmd: az security pricing show -n VirtualMachines --subscription {{pilotSubId}} --query "pricingTier" -o tsv
+        expect: Free
+        poll: { interval_s: 5, max_wait_s: 60 }
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_1_pilot_storage_v2
+    applies: az security pricing create -n StorageAccounts --tier Standard --subplan DefenderForStorageV2 --subscription {{pilotSubId}}
+    verify:
+      L1_acknowledge:
+        cmd: az security pricing show -n StorageAccounts --subscription {{pilotSubId}} -o json
+        expect_jmespath: "pricingTier=='Standard' && subPlan=='DefenderForStorageV2'"
+      L2_state:
+        cmd: az security pricing show -n StorageAccounts --subscription {{pilotSubId}} --query "[pricingTier, subPlan]" -o tsv
+        expect: "Standard\tDefenderForStorageV2"
+        poll: { interval_s: 10, max_wait_s: 60 }
+      L3_functional:
+        description: Storage threat detection alert pipeline reachable.
+        cmd: az security alert list --subscription {{pilotSubId}} --query "length(@)" -o tsv
+        expect: numeric (any value)
+        lag: 30m
+    diagnostics:
+      - if: L1 returns 403
+        run: az role assignment list --assignee {{userObjectId}} --scope /subscriptions/{{pilotSubId}} -o table
+        hint: Same as phase_1_pilot_servers_p2 — needs Security Admin / Owner.
+    rollback:
+      trigger: L1 fails twice OR user aborts
+      cmd: az security pricing create -n StorageAccounts --tier Free --subscription {{pilotSubId}}
+      verify_rollback:
+        cmd: az security pricing show -n StorageAccounts --subscription {{pilotSubId}} --query "pricingTier" -o tsv
+        expect: Free
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_1_workspace_setting
+    applies: az security workspace-setting create -n default --target-workspace {{workspaceResourceId}} --subscription {{pilotSubId}}
+    verify:
+      L1_acknowledge:
+        cmd: az security workspace-setting show -n default --subscription {{pilotSubId}} -o json
+        expect_jmespath: "workspaceId=='{{workspaceResourceId}}'"
+      L2_state:
+        cmd: az security workspace-setting show -n default --subscription {{pilotSubId}} --query "workspaceId" -o tsv
+        expect: "{{workspaceResourceId}}"
+        poll: { interval_s: 10, max_wait_s: 60 }
+      L3_functional:
+        description: Security data lands in workspace.
+        cmd: |
+          az monitor log-analytics query -w {{workspaceId}} --analytics-query "SecurityEvent | take 1" -o table
+        expect: query returns rows OR returns empty without error
+        lag: 4h
+    diagnostics:
+      - if: L1 returns 404 on workspace
+        run: az monitor log-analytics workspace list -o table
+        hint: Workspace id wrong or in different sub. Verify `--target-workspace` is the resource id.
+      - if: L3 returns no SecurityEvent rows after 4h
+        run: az security auto-provisioning-setting list --subscription {{pilotSubId}}
+        hint: Agents may not be installed. Confirm AMA / MDE provisioning.
+    rollback:
+      trigger: user aborts
+      cmd: az security workspace-setting delete -n default --subscription {{pilotSubId}}
+      verify_rollback:
+        cmd: az security workspace-setting show -n default --subscription {{pilotSubId}} 2>&1
+        expect: error 'NotFound' OR empty result
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_2_tenant_cspm
+    applies: |
+      az policy assignment create --name enable-defender-cspm \
+        --policy-set-definition {{builtinInitiativeId}} \
+        --scope /providers/Microsoft.Management/managementGroups/{{mgId}} \
+        --mi-system-assigned --location eastus
+    verify:
+      L1_acknowledge:
+        cmd: az policy assignment show --name enable-defender-cspm --scope /providers/Microsoft.Management/managementGroups/{{mgId}}
+        expect_jmespath: "name=='enable-defender-cspm'"
+      L2_state:
+        description: Spot-check 2–3 subscriptions show CSPM Standard.
+        cmd: az security pricing show -n CloudPosture --subscription {{spotSubId}} --query "pricingTier" -o tsv
+        expect: Standard
+        poll: { interval_s: 30, max_wait_s: 1800 }   # policy compliance scans run on cadence
+      L3_functional:
+        description: Attack-path findings begin to populate.
+        cmd: az graph query -q "securityresources | where type startswith 'microsoft.security/attackpaths' | summarize count()" -o table
+        expect: numeric (any value)
+        lag: 24h
+    diagnostics:
+      - if: L2 spot-check still Free after 30m
+        run: az policy state list --filter "policyAssignmentName eq 'enable-defender-cspm'" --query "[?complianceState=='NonCompliant']" -o table
+        hint: Trigger remediation task on the assignment OR wait for next compliance scan (default ~24h, force-able).
+    rollback:
+      trigger: L1 fails twice OR user aborts before scale-out completes
+      cmds:
+        - az policy assignment delete --name enable-defender-cspm --scope /providers/Microsoft.Management/managementGroups/{{mgId}}
+        - "# optional: per-sub revert: az security pricing create -n CloudPosture --tier Free --subscription <subId>"
+      verify_rollback:
+        cmd: az policy assignment show --name enable-defender-cspm --scope /providers/Microsoft.Management/managementGroups/{{mgId}} 2>&1
+        expect: error 'PolicyAssignmentNotFound'
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_4_aws_connector
+    applies: portal-driven CloudFormation deploy in AWS account
+    verify:
+      L1_acknowledge:
+        description: Connector record created in MDC.
+        cmd: az security security-connector list --subscription {{subId}} --query "[?contains(name, 'aws')].{name:name, state:properties.environmentData.environmentType}" -o table
+        expect: at least one AWS connector row
+      L2_state:
+        description: Connector status reaches Healthy.
+        cmd: az security security-connector show --name {{connectorName}} --resource-group {{rgName}} --subscription {{subId}} --query "properties.offerings[0].onboardingStatus" -o tsv
+        expect: Healthy
+        poll: { interval_s: 60, max_wait_s: 1800 }
+      L3_functional:
+        description: AWS resources appear in MDC inventory.
+        cmd: az graph query -q "resources | where subscriptionId == '{{subId}}' and tags.cloudProvider == 'AWS' | summarize count()" -o table
+        expect: numeric > 0
+        lag: 4h
+    diagnostics:
+      - if: L1 returns no connector
+        run: "# AWS side: aws cloudformation describe-stacks --stack-name MicrosoftDefenderForCloud"
+        hint: CloudFormation stack failed in AWS account. Check stack events.
+      - if: L2 stuck at NotConnected
+        run: az security security-connector show --name {{connectorName}} -g {{rgName}} -o json
+        hint: IAM role trust policy mismatch. Re-download template from MDC portal.
+    rollback:
+      trigger: user aborts OR stack fails irrecoverably
+      cmds:
+        - az security security-connector delete --name {{connectorName}} -g {{rgName}}
+        - "# AWS side: aws cloudformation delete-stack --stack-name MicrosoftDefenderForCloud"
+      verify_rollback:
+        cmd: az security security-connector show --name {{connectorName}} -g {{rgName}} 2>&1
+        expect: error 'NotFound'
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_5_arc_onboarding
+    applies: azcmagent connect ... (per server) OR at-scale onboarding script
+    verify:
+      L1_acknowledge:
+        description: Connected machine resource exists.
+        cmd: az connectedmachine show --name {{serverName}} -g {{rgName}} --query "{name:name, status:status}" -o table
+        expect_jmespath: "status=='Connected'"
+      L2_state:
+        description: Heartbeat seen recently.
+        cmd: az connectedmachine show --name {{serverName}} -g {{rgName}} --query "lastStatusChange" -o tsv
+        expect: timestamp within last 10 minutes
+        poll: { interval_s: 30, max_wait_s: 600 }
+      L3_functional:
+        description: Defender for Servers extensions auto-install on the Arc machine.
+        cmd: az connectedmachine extension list --machine-name {{serverName}} -g {{rgName}} --query "[?name=='MDE.Windows' || name=='MDE.Linux'].{name:name, state:provisioningState}" -o table
+        expect: provisioningState == Succeeded
+        lag: 30m
+    diagnostics:
+      - if: L1 returns NotFound
+        run: "# on the server: azcmagent show"
+        hint: Agent not installed or wrong RG/sub. Re-run `azcmagent connect` with correct params.
+      - if: L2 stuck on old timestamp
+        run: "# on the server: azcmagent check"
+        hint: Outbound 443 to Arc endpoints likely blocked. See validation.yaml#p2.11.network_egress.
+    rollback:
+      trigger: user aborts within first 10 minutes
+      cmds:
+        - "# on the server: azcmagent disconnect"
+        - az connectedmachine delete --name {{serverName}} -g {{rgName}} --yes
+      verify_rollback:
+        cmd: az connectedmachine show --name {{serverName}} -g {{rgName}} 2>&1
+        expect: error 'NotFound'
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_6_workflow_automation
+    applies: az security automation create ...
+    verify:
+      L1_acknowledge:
+        cmd: az security automation show --name {{autoName}} -g {{rgName}} -o json
+        expect_jmespath: "name=='{{autoName}}'"
+      L2_state:
+        cmd: az security automation show --name {{autoName}} -g {{rgName}} --query "isEnabled" -o tsv
+        expect: "True"
+      L3_functional:
+        description: Logic App invocation logged after a test alert.
+        cmd: az monitor activity-log list --resource-group {{rgName}} --offset 1h --query "[?contains(resourceId, 'workflows')]" -o table
+        expect: at least one row after a synthetic alert
+        lag: 1h
+    rollback:
+      trigger: user aborts
+      cmd: az security automation delete --name {{autoName}} -g {{rgName}}
+      verify_rollback:
+        cmd: az security automation show --name {{autoName}} -g {{rgName}} 2>&1
+        expect: error 'NotFound'
+
+  # ---------------------------------------------------------------------------
+  - phase_id: phase_7_compliance_assignment
+    applies: az policy assignment create --name cis-azure-2.0 ...
+    verify:
+      L1_acknowledge:
+        cmd: az policy assignment show --name cis-azure-2.0 --scope /providers/Microsoft.Management/managementGroups/{{mgId}}
+        expect_jmespath: "name=='cis-azure-2.0'"
+      L2_state:
+        description: Initiative shows in MDC Regulatory Compliance dashboard.
+        cmd: az graph query -q "securityresources | where type == 'microsoft.security/regulatorycompliancestandards' | where name == 'CIS-Azure-2.0' | summarize count()" -o tsv
+        expect: ">0"
+        poll: { interval_s: 60, max_wait_s: 1800 }
+      L3_functional:
+        description: Per-control assessments populate.
+        cmd: az graph query -q "securityresources | where type contains 'regulatorycomplianceassessments' | where parent contains 'CIS-Azure-2.0' | summarize count()" -o tsv
+        expect: ">0"
+        lag: 24h
+    rollback:
+      trigger: user aborts
+      cmd: az policy assignment delete --name cis-azure-2.0 --scope /providers/Microsoft.Management/managementGroups/{{mgId}}
+      verify_rollback:
+        cmd: az policy assignment show --name cis-azure-2.0 --scope /providers/Microsoft.Management/managementGroups/{{mgId}} 2>&1
+        expect: error 'PolicyAssignmentNotFound'
+
+# =============================================================================
+# Universal report format the agent emits after a verify run
+# =============================================================================
+report_format: |
+  ✅/❌  PHASE: <phase_id>
+  ──────────────────────────────────
+  L1 acknowledge : ✅ accepted (<latency_ms>ms)
+  L2 state       : ✅ confirmed after <elapsed_s>s
+  L3 functional  : ⏳ pending (re-check at <eta>)
+  Rollback ready : <cmd>
+  Next phase     : <next_phase_id> | gate: open | gate: blocked

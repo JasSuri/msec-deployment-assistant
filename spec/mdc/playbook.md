@@ -7,6 +7,7 @@ Convention: `{{subId}}`, `{{mgId}}`, `{{workspaceId}}`, `{{rgName}}` are placeho
 ---
 
 ## Phase 0 — Baseline (free, no risk)
+**phase_id:** `phase_0_baseline`   **verify:** [verification.yaml#phase_0_baseline](verification.yaml)
 **Goal:** Foundational CSPM enabled tenant-wide. Secure Score baseline captured.
 
 **Required role:** Security Admin or Owner at MG / sub scope.
@@ -20,13 +21,14 @@ az provider register --namespace Microsoft.Security
 az security pricing show -n CloudPosture --subscription {{subId}}
 ```
 
-**Verify:** `az security pricing show -n CloudPosture --subscription {{subId}}` → `pricingTier == Free` (or `Standard` if Defender CSPM enabled).
+**Verify:** Run `verification.yaml#phase_0_baseline` → L1 (provider Registering/Registered) → L2 (Registered) → L3 deferred (assessments populate).
 
 **Rollback:** N/A (free tier; cannot be disabled without disabling MDC entirely).
 
 ---
 
 ## Phase 1 — Pilot (one non-prod sub, paid plans, 30-day trial)
+**phase_ids:** `phase_1_pilot_servers_p2`, `phase_1_pilot_storage_v2`, `phase_1_workspace_setting`   **verify:** [verification.yaml](verification.yaml)
 **Goal:** Validate alerts, agent behaviour, real cost on ONE subscription.
 
 **Apply:**
@@ -41,25 +43,16 @@ az security pricing create -n StorageAccounts --tier Standard --subplan Defender
 az security workspace-setting create -n default --target-workspace {{workspaceResourceId}} --subscription {{pilotSubId}}
 ```
 
-**Verify:**
-```bash
-az security pricing list --subscription {{pilotSubId}} -o table
-# Wait 24h, then:
-az security alert list --subscription {{pilotSubId}} -o table
-az security assessment list --subscription {{pilotSubId}} --query "[?status.code=='Unhealthy'] | length(@)"
-```
+**Verify:** Run the three matching `verification.yaml` blocks. L1+L2 must be ✅ before declaring Phase 1 complete. L3 (sample VM gets MDE extension, workspace receives SecurityEvent rows) is deferred — surface as `pending` and schedule follow-up at the listed `lag`.
 
-**Rollback:**
-```bash
-az security pricing create -n VirtualMachines --tier Free --subscription {{pilotSubId}}
-az security pricing create -n StorageAccounts --tier Free --subscription {{pilotSubId}}
-```
+**Rollback:** Each phase id has its own `rollback` block in `verification.yaml` with a `verify_rollback` check. Always confirm rollback verified before reporting.
 
 **Agent guardrail:** before applying, print: *"This will start a 30-day free trial on subscription {{pilotSubId}}. After 30 days you will be billed at ~$X/server/month for ~N servers. Continue? (yes/no)"*
 
 ---
 
 ## Phase 2 — Tenant-wide CSPM
+**phase_id:** `phase_2_tenant_cspm`   **verify:** [verification.yaml#phase_2_tenant_cspm](verification.yaml)
 **Goal:** Defender CSPM (paid) across the whole MG → attack paths, agentless scan, secret scan.
 
 **Apply at MG scope via Azure Policy (preferred over per-sub loops):**
@@ -72,12 +65,9 @@ az policy assignment create \
   --mi-system-assigned --location eastus
 ```
 
-**Verify:** wait for policy compliance scan; spot-check 2–3 subs:
-```bash
-az security pricing show -n CloudPosture --subscription {{subId}}
-```
+**Verify:** Run `verification.yaml#phase_2_tenant_cspm`. L2 polls a spot subscription for up to 30 min (policy compliance scan cadence). L3 (attack-path findings) deferred 24h.
 
-**Rollback:** delete the policy assignment + flip plans back to Free.
+**Rollback:** delete the policy assignment + flip plans back to Free — see `verification.yaml#phase_2_tenant_cspm.rollback`.
 
 ---
 
@@ -93,6 +83,7 @@ For each:
 ---
 
 ## Phase 4 — Multi-cloud
+**phase_id:** `phase_4_aws_connector` (mirror for GCP)   **verify:** [verification.yaml#phase_4_aws_connector](verification.yaml)
 **AWS:**
 ```bash
 # Use the portal-generated CloudFormation template — DO NOT hand-craft IAM
@@ -109,6 +100,7 @@ Verify: `az security security-connector list --subscription {{subId}} -o table` 
 ---
 
 ## Phase 5 — Hybrid (Azure Arc)
+**phase_id:** `phase_5_arc_onboarding`   **verify:** [verification.yaml#phase_5_arc_onboarding](verification.yaml)
 Onboard servers, then Defender for Servers covers them automatically.
 
 ```bash
@@ -123,6 +115,7 @@ azcmagent connect --resource-group {{rgName}} --tenant-id {{tenantId}} --locatio
 ---
 
 ## Phase 6 — SOC integration
+**phase_id:** `phase_6_workflow_automation`   **verify:** [verification.yaml#phase_6_workflow_automation](verification.yaml)
 - Continuous Export → Sentinel / Event Hub.
 - Workflow Automation (Logic Apps) for high-severity alerts.
 - ServiceNow ITSM (Defender CSPM Governance).
@@ -136,6 +129,7 @@ az security automation create --name <name> --resource-group <rg> --location <lo
 ---
 
 ## Phase 7 — Compliance & ongoing
+**phase_id:** `phase_7_compliance_assignment`   **verify:** [verification.yaml#phase_7_compliance_assignment](verification.yaml)
 - Assign regulatory standards (CIS, NIST 800-53, PCI-DSS, ISO 27001, SOC2).
 - Subscribe to monthly Secure Score review.
 - Tune suppression rules.
