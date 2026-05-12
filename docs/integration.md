@@ -5,9 +5,9 @@ This repo holds **agent context** as plain files. The conversational layer (what
 ## What the AI needs from this repo, in order
 
 1. **System prompt** ← `AGENTS.md` (the orchestrator contract).
-2. **Loaded skills** ← `products/mdc/skill.md` (and any other product folders you register).
-3. **Structured validation driver** ← `products/mdc/validation.yaml` (the question/check engine).
-4. **Tool-callable references** ← `products/mdc/preflight.md`, `playbook.md`, `license-matrix.yaml` (treat as retrievable docs OR pre-load into context if the model can hold it).
+2. **Loaded skills** ← `spec/mdc/skill.md` (and any other product folders you register).
+3. **Structured validation driver** ← `spec/mdc/validation.yaml` (the question/check engine).
+4. **Tool-callable references** ← `spec/mdc/preflight.md`, `playbook.md`, `license-matrix.yaml` (treat as retrievable docs OR pre-load into context if the model can hold it).
 
 > Rule of thumb: `skill.md` + `validation.yaml` + `license-matrix.yaml` should always be in context. `preflight.md` and `playbook.md` can be retrieved on demand.
 
@@ -40,7 +40,7 @@ Because the repo includes `.github/plugin/marketplace.json`, it can also be regi
 
 ### Content model inside the plugin
 
-- `products/` remains the canonical source for structured product packs.
+- `spec/` remains the canonical source for structured product packs.
 - `agents/` and `skills/` are the Copilot CLI plugin surface.
 - `.github/copilot-instructions.md` keeps repository-level routing deterministic when the repo is used directly without plugin installation.
 
@@ -53,7 +53,7 @@ Map this repo directly:
 | Your colleague's file | Source from this repo |
 |---|---|
 | `agents.md` (top level) | `deployment-assistant/AGENTS.md` |
-| `skills/mdc.skill.md` | `deployment-assistant/products/mdc/skill.md` + the YAML files appended as fenced code blocks |
+| `skills/mdc.skill.md` | `deployment-assistant/spec/mdc/skill.md` + the YAML files appended as fenced code blocks |
 
 Concrete steps:
 1. Copy `AGENTS.md` to the root of the repo your colleague is using as `.github/copilot-instructions.md` (or `agents.md`, depending on convention).

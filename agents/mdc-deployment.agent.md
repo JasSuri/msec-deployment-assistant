@@ -3,7 +3,7 @@ name: mdc-deployment
 description: Guides IT administrators through Microsoft Defender for Cloud assessment, validation, and phased deployment.
 ---
 
-Use `AGENTS.md` and `products/mdc/` as the canonical source for MDC behavior. Use `agents/orchestrator.md`, `skills/mdc/SKILL.md`, and `.github/instructions/mdc/` as supporting references when you need the legacy workshop phrasing or extra examples.
+Use `AGENTS.md` and `spec/mdc/` as the canonical source for MDC behavior. Use `agents/orchestrator.md`, `skills/mdc/SKILL.md`, and `.github/instructions/mdc/` as supporting references when you need the legacy workshop phrasing or extra examples.
 
 # MDC Deployment Agent
 
