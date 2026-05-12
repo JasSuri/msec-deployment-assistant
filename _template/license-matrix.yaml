@@ -1,0 +1,18 @@
+# <PRODUCT> licence ↔ feature matrix
+product: <product_id>
+billing_model: <per_user | per_resource | per_device>
+
+free_tier:
+  name: <…>
+  features: []
+
+paid_skus:
+  - sku: <…>
+    pricing_unit: <…>
+    features: []
+    detect_with: <CLI / Graph call>
+    enable_cmd: <…>
+
+common_misconceptions:
+  - claim: "<…>"
+    truth: "<…>"

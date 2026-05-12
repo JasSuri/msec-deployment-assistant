@@ -1,0 +1,304 @@
+# Machine-readable validation for Microsoft Defender for Cloud (MDC)
+# Persona: IT Admin
+# Consumed by the orchestrator (AGENTS.md). Each item drives one agent turn.
+# Companion human-readable doc: ../../../DeploymentAssistant-Validation.md
+#
+# DESIGN RULE (enforced by AGENTS.md):
+#   1. DETECT first. If a fact is in `detect:`, RUN the command — never ask.
+#   2. INFER second. If `infer_from:` resolves it from prior signals, use that — never ask.
+#   3. ASK last, and only ONE open question per pillar by default.
+#   4. Follow-up questions ONLY fire when a `red_flag`, `gap`, or `ambiguity` triggers them.
+#
+# Question modes:
+#   required          — must be asked (no other way to get the answer)
+#   only_if_ambiguous — ask only if detect/infer didn't resolve it
+#   only_if_red_flag  — ask only if a prior answer triggered a red flag
+#   only_if_gap       — ask only if detection found a gap that needs human input
+#   detect_only       — never ask; resolved purely from CLI/Graph
+#   infer_first       — try to infer; ask only if inference fails
+
+product: mdc
+persona: it_admin
+version: 2.0
+
+# =============================================================================
+# PILLAR 1 — UNDERSTAND  (overcome fear through clarity)
+# Default behaviour: ONE open question. Branch only on red flags.
+# =============================================================================
+pillar_1:
+  goal: Validate the admin's mental model of MDC before deploying anything.
+  exit_gate: No unresolved red flag AND no redirect triggered.
+  conversation_style: |
+    Lead with ONE open question that lets the user reveal understanding, intent, fear,
+    and goals in their own words. Listen. Only ask follow-ups when a red flag,
+    redirect signal, or genuine ambiguity surfaces.
+
+  opener:
+    id: p1.opener
+    mode: required
+    ask: |
+      "Before we touch anything — in your own words, what do you want MDC to do for you,
+      and what's your biggest worry about turning it on?"
+    extracts:           # the model parses these signals from the single answer
+      - mental_model    # → maps to p1.1 dimension
+      - business_goal   # → maps to p1.2 dimension
+      - primary_fear    # → maps to p1.3 dimension
+      - implied_scope   # azure / aws / gcp / hybrid hints
+
+  # Follow-ups only fire when a signal in the opener answer triggers them.
+  conditional_followups:
+
+    - id: p1.1.misconception_check
+      dimension: MDC understanding
+      mode: only_if_red_flag
+      trigger_red_flags:
+        - match: ["antivirus", "endpoint", "MDE", "laptops", "desktops"]
+          corrective_message: |
+            MDC is not endpoint AV. It's a CNAPP (CSPM + CWPP) for cloud workloads.
+            It integrates Microsoft Defender for Endpoint *for servers only*. For laptops/desktops
+            you want Microsoft Defender for Endpoint (MDE) directly.
+        - match: ["replaces sentinel", "siem", "SOAR"]
+          corrective_message: |
+            MDC is not a SIEM. It *feeds* Microsoft Sentinel. Sentinel correlates and hunts;
+            MDC produces the cloud-security signal.
+        - match: ["fixes my firewall", "auto-configure NSG", "auto-remediate network"]
+          corrective_message: |
+            MDC recommends changes; it does not automatically modify NSGs or firewalls.
+            Remediation is opt-in per recommendation.
+      action: Deliver corrective_message inline, then ONE confirmation — "Does that match how you'd want to use it?" — then move on.
+      source: skill.md#what-mdc-is-one-sentence
+
+    - id: p1.2.redirect_check
+      dimension: Problem-solution fit
+      mode: only_if_red_flag
+      redirect_matrix:
+        - if_user_says: ["protect employee laptops", "endpoint detection", "EDR for users"]
+          redirect_to: Microsoft Defender for Endpoint (MDE)
+          reason: MDC does not protect end-user devices.
+        - if_user_says: ["block phishing", "email security", "ATP for email"]
+          redirect_to: Microsoft Defender for Office 365
+          reason: Email protection is a separate product.
+        - if_user_says: ["SIEM", "alert correlation", "hunting", "SOAR"]
+          redirect_to: Microsoft Sentinel
+          reason: MDC is a signal source for Sentinel, not a SIEM itself.
+        - if_user_says: ["data classification", "DLP", "label sensitive documents"]
+          redirect_to: Microsoft Purview
+          reason: Data governance is Purview, not MDC.
+        - if_user_says: ["MFA", "conditional access", "identity protection"]
+          redirect_to: Microsoft Entra ID
+          reason: Identity controls live in Entra.
+      action: STOP the MDC flow. Recommend the right product. Do not deploy.
+
+    - id: p1.3.fear_addressed
+      dimension: Change awareness
+      mode: only_if_ambiguous   # only if `primary_fear` couldn't be parsed from opener
+      ask: "Quick check — is the bigger concern cost, alert noise, or workload impact?"
+      response_template: |
+        Here's what changes vs what stays the same (cited from skill.md):
+        CHANGES:   {{cited from skill.md → "What changes when MDC is enabled"}}
+        UNCHANGED: workloads, application behaviour, network config, end-user experience, existing Azure Policy.
+        Everything is reversible. We'll start with free CSPM and pilot one paid plan on ONE non-prod sub.
+
+  decisions:
+    - id: gate_p1
+      proceed_when: "No unresolved red flag AND no redirect triggered."
+      redirect_when: "p1.2 redirect_matrix triggered."
+      educate_when: "p1.1 trigger_red_flags fired AND user has not confirmed corrected understanding."
+
+# =============================================================================
+# PILLAR 2 — VALIDATE  (no surprises during deployment)
+# Detection-first. Questions only where no API can answer.
+# =============================================================================
+pillar_2:
+  goal: Confirm licences, roles, and environment are ready.
+  rule: |
+    For every check with a `detect:` block, RUN it BEFORE asking anything.
+    For every check with `infer_from:`, resolve it from prior signals.
+    Only ASK if neither resolves it (mode == required) or if detection surfaced a gap (mode == only_if_gap).
+  conversation_style: |
+    Open Pillar 2 with: "Running a quick read-only scan of your environment — give me 10 seconds."
+    Then surface ONE consolidated report. Ask at most ONE clarifying question after the report.
+
+  checks:
+
+    # -------- Detected automatically (no question) --------
+    - id: p2.1.license_state
+      category: licensing
+      mode: detect_only
+      detect:
+        azure_cli:
+          - description: List subscriptions accessible to the signed-in identity.
+            cmd: az account list --query "[].{name:name, id:id, state:state}" -o table
+          - description: Show enabled Defender plans per subscription.
+            cmd: az security pricing list --subscription {{subId}} -o table
+          - description: Show MDC settings (auto-provisioning, workspace).
+            cmd: az security setting list --subscription {{subId}} -o table
+        graph:
+          - description: Tenant licence inventory (informational only — MDC is per-resource).
+            endpoint: GET https://graph.microsoft.com/v1.0/subscribedSkus
+      cross_reference: license-matrix.yaml
+      report_back:
+        - "✅ Plans you ALREADY pay for that are enabled (and what they cover)"
+        - "✅ Plans you ALREADY pay for but have NOT enabled (free upgrade in posture)"
+        - "⚠️ Plans you'd need to ENABLE for the goals from p1 (with monthly cost estimate)"
+
+    - id: p2.3.subscription_topology
+      category: tenancy
+      mode: detect_only
+      detect:
+        azure_cli:
+          - cmd: az account management-group list -o table
+          - cmd: az account list --query "[].{name:name, id:id, tenantId:tenantId}" -o table
+
+    - id: p2.5.resource_provider
+      category: dependencies
+      mode: detect_only
+      detect:
+        azure_cli:
+          - cmd: az provider show -n Microsoft.Security --query registrationState -o tsv
+      remediation:
+        cmd: az provider register --namespace Microsoft.Security
+      blocking: true
+
+    - id: p2.6.log_analytics
+      category: dependencies
+      mode: detect_only
+      required_if: defender_for_servers_in_scope
+      detect:
+        azure_cli:
+          - cmd: az monitor log-analytics workspace list -o table
+      mitigation_if_missing: "Offer to use MDC's default workspace — no question needed unless user has a preference."
+
+    - id: p2.7.role_assessment
+      category: permissions
+      mode: detect_only
+      detect:
+        azure_cli:
+          - cmd: az role assignment list --assignee {{userObjectId}} --scope /subscriptions/{{subId}} -o table
+        graph:
+          - endpoint: GET https://graph.microsoft.com/v1.0/me/memberOf/microsoft.graph.directoryRole
+      role_matrix:
+        - task: View Secure Score / recommendations / alerts
+          required_role: Security Reader
+          scope: subscription or MG
+        - task: Enable / disable Defender plans
+          required_role: Security Admin OR Owner
+          scope: subscription
+        - task: Apply remediation on a resource
+          required_role: Contributor
+          scope: target resource
+        - task: Configure auto-provisioning
+          required_role: Security Admin + Contributor
+          scope: subscription
+        - task: Onboard AWS connector
+          required_role: Owner (Azure side) + AWS admin
+          scope: subscription + AWS account
+        - task: Onboard GCP connector
+          required_role: Owner (Azure side) + GCP project admin
+          scope: subscription + GCP project
+        - task: Onboard Arc machines
+          required_role: Azure Connected Machine Onboarding + local admin on server
+          scope: resource group + server
+        - task: Assign / customise regulatory standards
+          required_role: Security Admin
+          scope: subscription or MG
+      mitigation_if_insufficient: "Recommend least-privilege PIM elevation (e.g. Security Admin at sub scope). Never suggest Global Admin."
+      blocking: true
+      docs: https://learn.microsoft.com/azure/defender-for-cloud/permissions
+
+    - id: p2.8.connectors_state
+      category: integrations
+      mode: detect_only
+      detect:
+        azure_cli:
+          - cmd: az security security-connector list --subscription {{subId}} -o table
+          - cmd: az connectedmachine list --query "[].{name:name, status:status, os:osName}" -o table
+      purpose: Tells the agent whether AWS/GCP/Arc are already partly set up — avoids asking "is multi-cloud in scope?" if connectors already exist.
+
+    - id: p2.9.policy_conflicts
+      category: environment
+      mode: detect_only
+      detect:
+        azure_cli:
+          - cmd: az policy assignment list --query "[?contains(displayName, 'Security') || contains(displayName, 'Defender')].{name:displayName, scope:scope}" -o table
+
+    # -------- Inferred from prior signals (no question unless inference fails) --------
+    - id: p2.2.cost_approval
+      category: licensing
+      mode: infer_first
+      infer_from:
+        - signal: "p2.1 detected paid Defender plans already enabled"
+          conclude: budget_already_approved
+        - signal: "p1 opener mentioned cost as primary fear"
+          conclude: free_only_default
+        - signal: "default"
+          conclude: free_only_default
+      ask_only_if: "user explicitly proposes enabling a paid plan that exceeds the inferred budget posture"
+      ask: "Quick check — happy to start a 30-day free trial for {{plan}} on {{subName}}? After day 30 it's ~${{est}}/mo."
+
+    - id: p2.4.multi_cloud_scope
+      category: tenancy
+      mode: infer_first
+      infer_from:
+        - signal: "p1 opener mentioned AWS / GCP / on-prem"
+          conclude: include_in_scope
+        - signal: "p2.8 detected existing AWS/GCP/Arc connectors"
+          conclude: include_in_scope
+        - signal: "default"
+          conclude: azure_only_phase_1
+      ask_only_if: "the inferred scope contradicts what the user later proposes"
+      branches:
+        aws:
+          requires: [Owner on Azure sub, AWS account admin]
+          docs: https://learn.microsoft.com/azure/defender-for-cloud/quickstart-onboard-aws
+        gcp:
+          requires: [Owner on Azure sub, GCP project admin]
+          docs: https://learn.microsoft.com/azure/defender-for-cloud/quickstart-onboard-gcp
+        arc:
+          requires: [Azure Connected Machine Onboarding role, local admin on each server]
+          docs: https://learn.microsoft.com/azure/azure-arc/servers/onboard-portal
+
+    # -------- Conditional questions (only fire when needed) --------
+    - id: p2.10.pilot_sub_clarifier
+      category: scope
+      mode: only_if_ambiguous
+      condition: "After detection: >1 subscription detected AND none flagged 'non-prod' / 'dev' / 'test' by tag or name."
+      ask: "I see {{n}} subscriptions. Which is your safest pilot — anything tagged non-prod or dev I should target first?"
+
+    - id: p2.11.network_egress
+      category: environment
+      mode: only_if_gap
+      surface_when: "Detection finds Private Link enforced on LA workspace OR existing policy denies public endpoints."
+      ask: "Detected restrictive network config — is outbound HTTPS to *.security.microsoft.com / *.ods.opinsights.azure.com / *.oms.opinsights.azure.com allowed, or do we need Private Link for MDC too?"
+      mitigation_if_blocked: "Add FQDN exceptions OR deploy Private Link for Log Analytics."
+      docs: https://learn.microsoft.com/azure/azure-monitor/agents/azure-monitor-agent-network-configuration
+
+  blockers:
+    - id: b.no_security_admin
+      condition: p2.7 returns no Security Admin / Owner
+      severity: high
+      mitigation: PIM elevation request to Security Admin at sub scope.
+    - id: b.no_budget
+      condition: p2.2 inferred free_only_default AND user proposes paid plan
+      severity: medium
+      mitigation: Use 30-day trial; defer paid scope to phase 2 of playbook.
+    - id: b.network_blocked
+      condition: p2.11 surfaced AND no Private Link
+      severity: high
+      mitigation: Network change request OR Private Link deployment.
+    - id: b.provider_unregistered
+      condition: p2.5 != Registered
+      severity: low
+      mitigation: Run remediation cmd; idempotent.
+
+  decisions:
+    - id: gate_p2
+      proceed_when: "All non-N/A detect_only checks ✅ OR ⚠️-with-mitigation. No `blocking: true` checks ❌."
+      block_when: "Any blocker.severity == high without mitigation accepted."
+
+# =============================================================================
+# Pillar 3 reference (full content lives in playbook.md)
+# =============================================================================
+pillar_3_summary:
+  driver_file: playbook.md
+  phases: [baseline, pilot, tenant_cspm, workload_protection, multi_cloud, hybrid, integrate, compliance]

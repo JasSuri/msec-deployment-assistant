@@ -1,0 +1,76 @@
+# Validation template — copy and adapt per product.
+product: <product_id>
+persona: it_admin
+version: 0.1
+
+pillar_1:
+  goal: Validate the admin's mental model of <product> before deploying.
+  exit_gate: All dimensions ✅ or ⚠️-acknowledged.
+  questions:
+    - id: p1.1.what_is
+      dimension: Product understanding
+      ask: "In your own words, what does <product> do?"
+      expected_keywords: []
+      red_flags:
+        - match: []
+          corrective_message: |
+            <…>
+      source: skill.md#what-it-is
+
+    - id: p1.2.problem_fit
+      dimension: Problem-solution fit
+      ask: "What problem are you trying to solve?"
+      redirect_matrix:
+        - if_user_says: []
+          redirect_to: <other product>
+          reason: <…>
+      good_fit_signals: []
+
+    - id: p1.3.change_awareness
+      dimension: Change awareness
+      ask: "What's your biggest worry about turning <product> on?"
+      response_template: |
+        Changes: <…>
+        Unchanged: <…>
+        All reversible.
+
+    - id: p1.4.risk_of_not_acting
+      dimension: Risk awareness
+      ask: "How would you know today if <bad thing> happened?"
+
+  decisions:
+    - id: gate_p1
+      proceed_when: All four dimensions resolved.
+      redirect_when: redirect_matrix triggered.
+      educate_when: Any red flag triggered.
+
+pillar_2:
+  goal: Confirm licences, roles, and environment.
+  rule: For every check with `detect`, RUN before asking.
+  checks:
+    - id: p2.1.license_state
+      category: licensing
+      detect:
+        azure_cli: []
+        graph: []
+      cross_reference: license-matrix.yaml
+
+    - id: p2.2.role_assessment
+      category: permissions
+      detect:
+        azure_cli: []
+        graph: []
+      role_matrix: []
+      blocking: true
+
+    # …add product-specific checks (network, dependencies, integrations)
+
+  blockers: []
+  decisions:
+    - id: gate_p2
+      proceed_when: All checks ✅ or ⚠️-with-mitigation.
+      block_when: Any blocking check ❌.
+
+pillar_3_summary:
+  driver_file: playbook.md
+  phases: []
