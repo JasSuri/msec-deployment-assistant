@@ -1,3 +1,8 @@
+---
+name: defender-xdr-deployment
+description: Microsoft Defender XDR deployment workshop for endpoint, email, identity, and cloud app security. Use when the user asks about Defender XDR, MDE, MDO, MDI, or unified threat detection.
+---
+
 # Defender XDR Deployment Skill
 
 ## Description

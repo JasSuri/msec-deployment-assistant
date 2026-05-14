@@ -1,3 +1,8 @@
+---
+name: purview-deployment
+description: Microsoft Purview deployment workshop for data protection, DLP, labeling, and compliance posture. Use when the user asks about Purview, DLP, sensitivity labels, retention, or compliance controls.
+---
+
 # Purview Deployment Skill
 
 ## Description

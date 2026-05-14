@@ -13,6 +13,39 @@ This repo holds **agent context** as plain files. The conversational layer (what
 
 ---
 
+## Option 0 — GitHub Copilot CLI plugin
+
+This repository can now be installed directly as a GitHub Copilot CLI plugin because it ships with:
+
+- `plugin.json` at the repository root
+- plugin-compatible agent profiles in `agents/*.agent.md`
+- plugin-compatible skills in `skills/*/SKILL.md`
+- `.github/plugin/marketplace.json` for marketplace registration
+
+### Direct install
+
+```shell
+copilot plugin install OWNER/REPO
+```
+
+Or from a Git URL:
+
+```shell
+copilot plugin install https://github.com/OWNER/REPO.git
+```
+
+### Marketplace registration
+
+Because the repo includes `.github/plugin/marketplace.json`, it can also be registered as a plugin marketplace and then browsed or installed from there.
+
+### Content model inside the plugin
+
+- `spec/` remains the canonical source for structured product packs.
+- `agents/` and `skills/` are the Copilot CLI plugin surface.
+- `.github/copilot-instructions.md` keeps repository-level routing deterministic when the repo is used directly without plugin installation.
+
+---
+
 ## Option A — GitHub Copilot Chat (skills.md / agents.md pattern, your colleague's setup)
 
 Map this repo directly:

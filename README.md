@@ -6,6 +6,33 @@ The assistant helps an IT admin go from *"I want to use product X"* to a success
 
 ## Architecture at a glance
 
+## GitHub Copilot CLI plugin
+
+This repository can be installed as a GitHub Copilot CLI plugin.
+
+### Direct install
+
+```shell
+copilot plugin install OWNER/REPO
+```
+
+Or from a Git URL:
+
+```shell
+copilot plugin install https://github.com/OWNER/REPO.git
+```
+
+### Marketplace mode
+
+The repo also includes `.github/plugin/marketplace.json`, so it can be registered as a plugin marketplace as well as installed directly as a plugin.
+
+### Packaging model
+
+- `spec/` is the canonical source for structured product packs.
+- `agents/` contains plugin-compatible custom agents.
+- `skills/` contains plugin-compatible skills.
+- `.github/copilot-instructions.md` keeps direct repository usage deterministic.
+
 ```
 👤 IT Admin → Copilot Chat → 🔀 router → product agent → Pillars 1-4 → ☁️ Azure
                                               │

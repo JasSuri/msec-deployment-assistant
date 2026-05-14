@@ -1,0 +1,31 @@
+{
+  "name": "msec-deployment-assistant-marketplace",
+  "owner": {
+    "name": "Jas Suri"
+  },
+  "metadata": {
+    "description": "Marketplace entry for the Microsoft Security Deployment Assistant Copilot CLI plugin.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "msec-deployment-assistant",
+      "description": "Guided deployment workshops for Microsoft security products in GitHub Copilot CLI.",
+      "version": "0.1.0",
+      "source": ".",
+      "repository": "https://github.com/JasSuri/msec-deployment-assistant",
+      "homepage": "https://github.com/JasSuri/msec-deployment-assistant",
+      "category": "security",
+      "keywords": [
+        "copilot-cli",
+        "microsoft-security",
+        "deployment"
+      ],
+      "tags": [
+        "agent",
+        "plugin",
+        "azure"
+      ]
+    }
+  ]
+}

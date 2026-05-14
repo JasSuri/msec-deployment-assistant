@@ -1,3 +1,8 @@
+---
+name: entra-deployment
+description: Microsoft Entra identity deployment workshop for licensing, Conditional Access, MFA, and identity posture. Use when the user asks about Entra, Azure AD, MFA, SSO, or identity security rollout.
+---
+
 # Entra Deployment Skill
 
 ## Description

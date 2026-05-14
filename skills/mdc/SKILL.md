@@ -1,3 +1,8 @@
+---
+name: mdc-deployment
+description: Microsoft Defender for Cloud deployment workshop for licensing, validation, plan enablement, onboarding, and posture review. Use when the user asks about Defender for Cloud, MDC, CSPM, or protecting Azure servers and workloads.
+---
+
 # MDC Deployment Skill
 
 ## Description
